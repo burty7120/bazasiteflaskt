@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask import Flask, render_template, request, redirect, url_for, flash, session, jsonify
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.utils import secure_filename
 import os
@@ -7,12 +7,12 @@ import telegram
 import asyncio
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = '8f834a6b2c4d3e9f1a2b5c7d9e0f3a2b'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://bazasite_user:cdyCb4lq05384JDrTu18r9NqY1o7XBHJ@dpg-d2995rbe5dus73c3kfeg-a.frankfurt-postgres.render.com/bazasite'
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', '8f834a6b2c4d3e9f1a2b5c7d9e0f3a2b')
+app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', 'postgresql://bazasite_user:cdyCb4lq05384JDrTu18r9NqY1o7XBHJ@dpg-d2995rbe5dus73c3kfeg-a.frankfurt-postgres.render.com/bazasite')
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
-TELEGRAM_BOT_TOKEN = '7912466673:AAFTlyieZGWoPXCR03ND_VszDjsF65jsuvY'
-TELEGRAM_CHAT_ID = '1402588151'
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '7912466673:AAFTlyieZGWoPXCR03ND_VszDjsF65jsuvY')
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '1402588151')
 
 db = SQLAlchemy(app)
 bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
@@ -36,40 +36,31 @@ class Order(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 def init_db():
-    # Check if tables exist
     inspector = db.inspect(db.engine)
     existing_tables = inspector.get_table_names()
-    
-    # Create tables if they don't exist
     if 'sneaker' not in existing_tables or 'order' not in existing_tables:
         db.create_all()
         print("Tables created successfully.")
-    
-    # Check if Sneaker table is empty and add sample data
     if Sneaker.query.count() == 0:
         sample_sneakers = [
-            Sneaker(
-                name="Nike Air Max 270",
-                image="nike_air_max_270.jpg",
-                sizes="40,41,42,43,44",
-                created_at=datetime.utcnow()
-            ),
-            Sneaker(
-                name="Adidas Yeezy Boost",
-                image="adidas_yeezy_boost.jpg",
-                sizes="41,42,43,44,45,46",
-                created_at=datetime.utcnow()
-            ),
-            Sneaker(
-                name="Puma RS-X",
-                image="puma_rs_x.jpg",
-                sizes="40,42,44,46,48",
-                created_at=datetime.utcnow()
-            )
+            Sneaker(name="Nike Air Max 270", image="nike_air_max_270.jpg", sizes="40,41,42,43,44", created_at=datetime.utcnow()),
+            Sneaker(name="Adidas Yeezy Boost", image="adidas_yeezy_boost.jpg", sizes="41,42,43,44,45,46", created_at=datetime.utcnow()),
+            Sneaker(name="Puma RS-X", image="puma_rs_x.jpg", sizes="40,42,44,46,48", created_at=datetime.utcnow())
         ]
         db.session.bulk_save_objects(sample_sneakers)
         db.session.commit()
         print("Sample sneakers added to database.")
+
+# API endpoint to get sneakers
+@app.route('/api/sneakers', methods=['GET'])
+def get_sneakers():
+    sneakers = Sneaker.query.all()
+    return jsonify([{
+        'id': sneaker.id,
+        'name': sneaker.name,
+        'image': f"/static/uploads/{sneaker.image}",
+        'sizes': sneaker.sizes
+    } for sneaker in sneakers])
 
 # Routes
 @app.route('/')
@@ -97,7 +88,6 @@ def admin():
 def admin_panel():
     if not session.get('admin'):
         return redirect(url_for('admin'))
-    
     if request.method == 'POST':
         name = request.form.get('name')
         sizes = ','.join([str(i) for i in range(40, 49) if request.form.get(f'size_{i}')])
@@ -120,22 +110,18 @@ def order(sneaker_id):
         telegram = request.form.get('telegram')
         phone = request.form.get('phone')
         post_office = request.form.get('post_office')
-        
         order = Order(sneaker_id=sneaker_id, size=size, nickname=nickname, 
                      telegram=telegram, phone=phone, post_office=post_office)
         db.session.add(order)
         db.session.commit()
-        
-        # Send to Telegram
         message = f"Нове замовлення!\nКросівки: {sneaker.name}\nРозмір: {size}\nНік: {nickname}\nТелеграм: {telegram}\nТелефон: {phone}\nПошта: {post_office}"
         asyncio.run(bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message))
-        
         flash('Замовлення успішно оформлено!')
         return redirect(url_for('profile'))
-    
     return render_template('order.html', sneaker=sneaker)
 
 if __name__ == '__main__':
     with app.app_context():
-        init_db()  # Initialize database and add sample data if needed
-    app.run(debug=True)
+        init_db()
+    port = int(os.getenv('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
