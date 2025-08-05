@@ -7,8 +7,8 @@ import telegram
 import asyncio
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://bazasite_user:cdyCb4lq05384JDrTu18r9NqY1o7XBHJ@dpg-d2995rbe5dus73c3kfeg-a/bazasite'
+app.config['SECRET_KEY'] = '8f834a6b2c4d3e9f1a2b5c7d9e0f3a2b'  # Заміни на свій ключ!
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://bazasite_user:cdyCb4lq05384JDrTu18r9NqY1o7XBHJ@dpg-d2995rbe5dus73c3kfeg-a.frankfurt-postgres.render.com/bazasite'
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 TELEGRAM_BOT_TOKEN = '7912466673:AAFTlyieZGWoPXCR03ND_VszDjsF65jsuvY'
