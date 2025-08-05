@@ -1,0 +1,105 @@
+from flask import Flask, render_template, request, redirect, url_for, flash, session
+from flask_sqlalchemy import SQLAlchemy
+from werkzeug.utils import secure_filename
+import os
+from datetime import datetime
+import telegram
+import asyncio
+
+app = Flask(__name__)
+app.config['SECRET_KEY'] = 'your-secret-key'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'postgresql://bazasite_user:cdyCb4lq05384JDrTu18r9NqY1o7XBHJ@dpg-d2995rbe5dus73c3kfeg-a/bazasite'
+app.config['UPLOAD_FOLDER'] = 'static/uploads'
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
+TELEGRAM_BOT_TOKEN = '7912466673:AAFTlyieZGWoPXCR03ND_VszDjsF65jsuvY'
+TELEGRAM_CHAT_ID = '1402588151'
+
+db = SQLAlchemy(app)
+bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
+
+# Models
+class Sneaker(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    image = db.Column(db.String(200), nullable=False)
+    sizes = db.Column(db.String(200), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+class Order(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    sneaker_id = db.Column(db.Integer, db.ForeignKey('sneaker.id'), nullable=False)
+    size = db.Column(db.Integer, nullable=False)
+    nickname = db.Column(db.String(100), nullable=False)
+    telegram = db.Column(db.String(100), nullable=False)
+    phone = db.Column(db.String(20), nullable=False)
+    post_office = db.Column(db.String(200), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+# Routes
+@app.route('/')
+def index():
+    sneakers = Sneaker.query.all()
+    return render_template('index.html', sneakers=sneakers)
+
+@app.route('/profile')
+def profile():
+    orders = Order.query.all()
+    return render_template('profile.html', orders=orders)
+
+@app.route('/admin', methods=['GET', 'POST'])
+def admin():
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        if username == 'admin' and password == 'admin':
+            session['admin'] = True
+            return redirect(url_for('admin_panel'))
+        flash('Неправильний логін або пароль')
+    return render_template('admin_login.html')
+
+@app.route('/admin/panel', methods=['GET', 'POST'])
+def admin_panel():
+    if not session.get('admin'):
+        return redirect(url_for('admin'))
+    
+    if request.method == 'POST':
+        name = request.form.get('name')
+        sizes = ','.join([str(i) for i in range(40, 49) if request.form.get(f'size_{i}')])
+        file = request.files['image']
+        if file:
+            filename = secure_filename(file.filename)
+            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+            sneaker = Sneaker(name=name, image=filename, sizes=sizes)
+            db.session.add(sneaker)
+            db.session.commit()
+            flash('Кросівки додано!')
+    return render_template('admin_panel.html')
+
+@app.route('/order/<int:sneaker_id>', methods=['GET', 'POST'])
+def order(sneaker_id):
+    sneaker = Sneaker.query.get_or_404(sneaker_id)
+    if request.method == 'POST':
+        size = request.form.get('size')
+        nickname = request.form.get('nickname')
+        telegram = request.form.get('telegram')
+        phone = request.form.get('phone')
+        post_office = request.form.get('post_office')
+        
+        order = Order(sneaker_id=sneaker_id, size=size, nickname=nickname, 
+                     telegram=telegram, phone=phone, post_office=post_office)
+        db.session.add(order)
+        db.session.commit()
+        
+        # Send to Telegram
+        message = f"Нове замовлення!\nКросівки: {sneaker.name}\nРозмір: {size}\nНік: {nickname}\nТелеграм: {telegram}\nТелефон: {phone}\nПошта: {post_office}"
+        asyncio.run(bot.send_message(chat_id=TELEGRAM_CHAT_ID, text=message))
+        
+        flash('Замовлення успішно оформлено!')
+        return redirect(url_for('profile'))
+    
+    return render_template('order.html', sneaker=sneaker)
+
+if __name__ == '__main__':
+    with app.app_context():
+        db.create_all()
+    app.run(debug=True)
